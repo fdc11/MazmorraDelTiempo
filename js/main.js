@@ -82,6 +82,10 @@ async function bootstrapModules() {
   uiInstance = uiMod?.ui ?? null;
   audioInstance = audioMod?.audio ?? null;
 
+  if (uiInstance && sessionInstance) {
+    uiInstance.setSession(sessionInstance);
+  }
+
   if (levelsMod?.LEVEL_LOADERS) {
     levelLoaders = levelsMod.LEVEL_LOADERS;
   } else if (levelsMod?.default) {
@@ -273,6 +277,9 @@ function registerStateHandlers() {
     enter() {
       menuSelectedIndex = 0;
       setZoom(1.0);
+      if (uiInstance && sessionInstance) {
+        uiInstance.setSession(sessionInstance);
+      }
     },
     update(dt) {
       uiInstance?.update(dt);

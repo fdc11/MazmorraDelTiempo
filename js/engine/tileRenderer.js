@@ -12,16 +12,18 @@ function pseudoRandom(x, y) {
   return n - Math.floor(n);
 }
 
-// Motes de polvo flotantes ambientales
-const AMBIENT_DUST_COUNT = 35;
+// Motes de polvo y pavesas doradas flotantes ambientales
+const AMBIENT_DUST_COUNT = 55;
 const ambientDust = Array.from({ length: AMBIENT_DUST_COUNT }, () => ({
   x: Math.random() * CANVAS.WIDTH,
   y: Math.random() * CANVAS.HEIGHT,
-  size: 1 + Math.random() * 2,
-  speedX: (Math.random() - 0.5) * 8,
-  speedY: -2 - Math.random() * 6,
-  alphaBase: 0.15 + Math.random() * 0.35,
+  size: 0.8 + Math.random() * 2.2,
+  speedX: (Math.random() - 0.5) * 6,
+  speedY: -3 - Math.random() * 8,
+  wobbleSpeed: 1 + Math.random() * 2.5,
+  alphaBase: 0.18 + Math.random() * 0.45,
   phase: Math.random() * Math.PI * 2,
+  isEmber: Math.random() > 0.6, // 40% son pavesas doradas con sutil resplandor
 }));
 
 export class TileRenderer {
@@ -31,17 +33,17 @@ export class TileRenderer {
 
   update(dt) {
     this.animTime += dt;
-    // Mover polvo ambiental
+    // Mover polvo ambiental y pavesas doradas
     for (let i = 0; i < AMBIENT_DUST_COUNT; i++) {
       const d = ambientDust[i];
-      d.x += d.speedX * dt;
+      d.x += (d.speedX + Math.sin(this.animTime * d.wobbleSpeed + d.phase) * 4) * dt;
       d.y += d.speedY * dt;
-      if (d.y < 0) {
+      if (d.y < -10) {
         d.y = CANVAS.HEIGHT + 10;
         d.x = Math.random() * CANVAS.WIDTH;
       }
-      if (d.x < 0) d.x = CANVAS.WIDTH;
-      if (d.x > CANVAS.WIDTH) d.x = 0;
+      if (d.x < -10) d.x = CANVAS.WIDTH + 5;
+      if (d.x > CANVAS.WIDTH + 10) d.x = -5;
     }
   }
 
@@ -347,11 +349,22 @@ export class TileRenderer {
 
   _drawAmbientDust(ctx) {
     ctx.save();
-    ctx.fillStyle = PALETTE.FLAME_LIGHT;
     for (let i = 0; i < AMBIENT_DUST_COUNT; i++) {
       const d = ambientDust[i];
-      const alpha = d.alphaBase * (0.6 + Math.sin(this.animTime * 2 + d.phase) * 0.4);
-      ctx.globalAlpha = alpha;
+      const pulse = 0.55 + Math.sin(this.animTime * 2.5 + d.phase) * 0.45;
+      const alpha = d.alphaBase * pulse;
+      ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
+
+      if (d.isEmber) {
+        ctx.fillStyle = PALETTE.FLAME_LIGHT;
+        ctx.shadowColor = PALETTE.FIRE;
+        ctx.shadowBlur = 6;
+      } else {
+        ctx.fillStyle = PALETTE.SANDSTONE_LIGHT;
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      }
+
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
       ctx.fill();

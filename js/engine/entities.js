@@ -383,13 +383,39 @@ export class HintSign {
     ctx.textBaseline = 'middle';
     ctx.fillText('?', screen.x + this.width / 2, screen.y + this.height / 2);
 
-    // Bocadillo de texto si el jugador está cerca
+    // Bocadillo tooltip estilizado si el jugador está cerca
     if (this.isNear) {
-      drawText(this.text, screen.x + this.width / 2, screen.y - 20, {
-        font: '16px "Cormorant Garamond", serif',
-        color: PALETTE.BONE_DUST,
+      const text = this.text;
+      ctx.font = '15px "Cormorant Garamond", serif';
+      const textMetrics = ctx.measureText(text);
+      const padX = 14;
+      const boxW = Math.max(120, textMetrics.width + padX * 2);
+      const boxH = 26;
+      const boxX = screen.x + this.width / 2 - boxW / 2;
+      const boxY = screen.y - 38;
+
+      // Caja de pergamino oscuro / piedra
+      ctx.fillStyle = 'rgba(18, 14, 22, 0.92)';
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      ctx.strokeStyle = PALETTE.TIME_GOLD;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+      // Puntero triangular hacia el cartel
+      ctx.fillStyle = PALETTE.TIME_GOLD;
+      ctx.beginPath();
+      ctx.moveTo(screen.x + this.width / 2 - 5, boxY + boxH);
+      ctx.lineTo(screen.x + this.width / 2 + 5, boxY + boxH);
+      ctx.lineTo(screen.x + this.width / 2, boxY + boxH + 5);
+      ctx.closePath();
+      ctx.fill();
+
+      // Texto nítido con sombra
+      drawText(text, screen.x + this.width / 2, boxY + 16, {
+        font: '15px "Cormorant Garamond", serif',
+        color: PALETTE.SANDSTONE_LIGHT,
         align: 'center',
-        shadow: { color: 'rgba(0,0,0,0.95)', blur: 8 },
+        shadow: { color: 'rgba(0,0,0,0.95)', blur: 4 },
       });
     }
 
