@@ -14,6 +14,14 @@ export class UI {
     this.mouseX = -1;
     this.mouseY = -1;
     this.hoveredButtonKey = null;
+    this._session = null;
+  }
+
+  /**
+   * Vincula la sesión al UI para acceso al high score.
+   */
+  setSession(session) {
+    this._session = session;
   }
 
   update(dt) {
@@ -84,14 +92,26 @@ export class UI {
       shadow: { color: 'rgba(0,0,0,0.85)', blur: 8 },
     });
 
-    // 5. Opciones interactivas del Menú
+    // 5. High Score (si existe)
+    const highScore = this._session?.highScore || 0;
+    if (highScore > 0) {
+      const hsStr = `RÉCORD: ${highScore.toString().padStart(6, '0')}`;
+      drawText(hsStr, cx, 175, {
+        font: '14px "Cinzel", serif',
+        color: PALETTE.SANDSTONE_LIGHT,
+        align: 'center',
+        shadow: { color: 'rgba(0,0,0,0.8)', blur: 6 },
+      });
+    }
+
+    // 6. Opciones interactivas del Menú
     const options = [
       { text: 'JUGAR', key: 'play' },
       { text: 'CONTROLES', key: 'controls' },
       { text: `SONIDO: ${isMuted ? 'SILENCIADO' : 'ACTIVADO'}`, key: 'sound' },
     ];
 
-    const startY = 270;
+    const startY = highScore > 0 ? 282 : 270;
     const spacing = 54;
     const btnW = 280;
     const btnH = 38;
@@ -109,7 +129,7 @@ export class UI {
       this._drawInteractiveButton(ctx, cx, btnY, btnW, btnH, options[i].text, isSel, isMouseOver);
     }
 
-    // 6. Pie de página con ayuda de navegación
+    // 7. Pie de página con ayuda de navegación
     drawText('Usa W / S o el RATÓN para elegir — ENTER o CLIC para confirmar', cx, CANVAS.HEIGHT - 38, {
       font: '16px "Cormorant Garamond", serif',
       color: PALETTE.SANDSTONE_LIGHT,
@@ -564,36 +584,90 @@ export class UI {
   drawGameOver(ctx, selectedIndex = 0, session = null, vitals = null) {
     const cx = CANVAS.WIDTH / 2;
     const cy = CANVAS.HEIGHT / 2;
+    const t = this.animTime;
 
-    // Overlay sombrío carmesí
-    ctx.fillStyle = 'rgba(12, 6, 8, 0.92)';
+    // Overlay sombrío carmesí con pulso
+    const pulseAlpha = 0.90 + Math.sin(t * 1.5) * 0.02;
+    ctx.fillStyle = `rgba(12, 6, 8, ${pulseAlpha})`;
     ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
 
-    const panelW = 480;
-    const panelH = 340;
+    const panelW = 520;
+    const panelH = 360;
     this._drawPersianFrame(ctx, cx - panelW / 2, cy - panelH / 2, panelW, panelH, PALETTE.CRIMSON);
 
-    drawText('EL TIEMPO SE HA AGOTADO', cx, cy - 118, {
-      font: 'bold 28px "Cinzel", serif',
+    // Título con efecto de resplandor carmesí pulsante
+    const crimsonGlow = 8 + Math.sin(t * 2.5) * 6;
+    drawText('EL TIEMPO SE HA AGOTADO', cx, cy - 130, {
+      font: 'bold 30px "Cinzel", serif',
       color: PALETTE.CRIMSON,
       align: 'center',
-      shadow: { color: 'rgba(156, 28, 32, 0.75)', blur: 16 },
+      shadow: { color: 'rgba(156, 28, 32, 0.80)', blur: crimsonGlow },
     });
 
-    drawText('Tu espíritu yace sepultado bajo las arenas de la mazmorra.', cx, cy - 82, {
+    drawText('Tu espíritu yace sepultado bajo las arenas de la mazmorra.', cx, cy - 92, {
       font: 'italic 18px "Cormorant Garamond", serif',
       color: PALETTE.BONE_DUST,
       align: 'center',
     });
 
-    // Estadísticas finales
+    // Separador ornamental
+    ctx.strokeStyle = 'rgba(156, 28, 32, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 160, cy - 62);
+    ctx.lineTo(cx + 160, cy - 62);
+    ctx.stroke();
+    this._drawDiamond(ctx, cx, cy - 62, 5, PALETTE.CRIMSON);
+
+    // Estadísticas en dos filas limpias
     if (session) {
       const elapsedMins = Math.floor((session.totalTimeElapsed || 0) / 60);
       const elapsedSecs = Math.floor((session.totalTimeElapsed || 0) % 60);
-      const timeStr = `${elapsedMins}m ${elapsedSecs}s`;
+      const timeStr = `${elapsedMins.toString().padStart(2,'0')}m ${elapsedSecs.toString().padStart(2,'0')}s`;
+      const scoreStr = session.score.toString().padStart(6, '0');
+      const hsStr = (session.highScore || 0).toString().padStart(6, '0');
+      const isNewRecord = session.score > 0 && session.score >= (session.highScore || 0);
 
-      drawText(`Tiempo Sobrevivido: ${timeStr}  |  Puntuación: ${session.score}`, cx, cy - 42, {
-        font: '16px "Cinzel", serif',
+      // Fila 1: Puntuación
+      drawText(`PUNTUACIÓN`, cx - 90, cy - 36, {
+        font: '12px "Cinzel", serif',
+        color: PALETTE.SANDSTONE_LIGHT,
+        align: 'center',
+      });
+      drawText(scoreStr, cx - 90, cy - 18, {
+        font: 'bold 22px "Cinzel", serif',
+        color: isNewRecord ? PALETTE.TIME_GOLD : PALETTE.BONE_DUST,
+        align: 'center',
+        shadow: isNewRecord ? { color: 'rgba(232, 182, 58, 0.6)', blur: 10 } : null,
+      });
+      if (isNewRecord) {
+        drawText('¡NUEVO RÉCORD!', cx - 90, cy + 2, {
+          font: 'italic 12px "Cormorant Garamond", serif',
+          color: PALETTE.TIME_GOLD,
+          align: 'center',
+        });
+      }
+
+      // Divisor vertical
+      ctx.strokeStyle = 'rgba(184, 142, 93, 0.25)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 44);
+      ctx.lineTo(cx, cy + 10);
+      ctx.stroke();
+
+      // Fila 2: Tiempo e Nivel
+      drawText(`TIEMPO SOBREVIVIDO`, cx + 90, cy - 36, {
+        font: '12px "Cinzel", serif',
+        color: PALETTE.SANDSTONE_LIGHT,
+        align: 'center',
+      });
+      drawText(timeStr, cx + 90, cy - 18, {
+        font: 'bold 22px "Cinzel", serif',
+        color: PALETTE.BONE_DUST,
+        align: 'center',
+      });
+      drawText(`Récord: ${hsStr}`, cx + 90, cy + 2, {
+        font: '12px "Cinzel", serif',
         color: PALETTE.SANDSTONE_LIGHT,
         align: 'center',
       });
@@ -601,7 +675,7 @@ export class UI {
 
     // Opciones
     const opts = ['REINTENTAR NIVEL', 'REINICIAR DESDE EL INICIO', 'VOLVER AL MENÚ'];
-    const startY = cy + 8;
+    const startY = cy + 24;
     const spacing = 44;
     const btnW = 340;
     const btnH = 34;
@@ -705,6 +779,19 @@ export class UI {
       ctx.closePath();
       ctx.fill();
     }
+    ctx.restore();
+  }
+
+  _drawDiamond(ctx, x, y, size, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - size);
+    ctx.lineTo(x + size, y);
+    ctx.lineTo(x, y + size);
+    ctx.lineTo(x - size, y);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
