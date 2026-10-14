@@ -1,113 +1,115 @@
 /**
- * tilemap.js — Mapa de tiles basado en ASCII.
- *
- * Leyenda base:
- *   '#'  muro sólido (colisión total)
- *   '='  plataforma de un solo sentido (se pisa desde arriba, se atraviesa hacia abajo)
- *   '.'  vacío
- *   '^'  pincho (hazard)
- *   'P'  spawn del jugador
- *   'E'  salida del nivel
- *   'C'  checkpoint
- *   'T'  antorcha decorativa
- *
- * Los niveles pueden extender la leyenda sin modificar esta clase pasando un
- * objeto `legend` adicional en el constructor (sus valores se mezclan con la base).
- *
- * Comportamiento de límites:
- *   - Izquierda, derecha y arriba del mapa → sólido (isSolid = true).
- *   - Abajo del mapa → vacío (isSolid = false) para permitir caer al vacío.
+ * js/engine/tilemap.js — Parser de mapas ASCII, colisiones AABB y gestión de entidades.
+ * Issue #2 — Movimiento | Rama: feature/movimiento-jugador
  */
 
-// ─── Leyenda base ─────────────────────────────────────────────────────────────
+import { TILE_SIZE } from '../config.js';
 
-/** @type {Record<string, string>} Tipo de tile para cada carácter ASCII. */
+/**
+ * Leyenda base de colisiones por carácter ASCII.
+ * '#' muro sólido
+ * '=' plataforma unidireccional
+ * '.' vacío
+ * '^' pincho fijo
+ * 'F' piso que cae (sólido hasta derrumbe)
+ * 'G' reja cerrada (sólida hasta apertura)
+ * 'P' spawn
+ * 'E' salida
+ * 'C' checkpoint
+ * 'T' antorcha
+ * 'H' reloj de arena
+ * 'S' pincho retráctil
+ * 'B' placa de presión
+ * 'L' cuchilla oscilante
+ * 'K' cartel
+ */
 const BASE_LEGEND = {
   '#': 'solid',
   '=': 'oneway',
   '.': 'empty',
   '^': 'hazard',
-  'P': 'empty',   // spawn: vacío para la física (la posición se usa por separado)
-  'E': 'empty',   // salida: vacío para la física
-  'C': 'empty',   // checkpoint: vacío para la física
-  'T': 'empty',   // antorcha: decorativa, sin colisión
+  'F': 'solid',
+  'G': 'solid',
+  'P': 'empty',
+  'E': 'empty',
+  'C': 'empty',
+  'T': 'empty',
+  'H': 'empty',
+  'S': 'empty',
+  'B': 'empty',
+  'L': 'empty',
+  'K': 'empty',
 };
-
-// ─── Clase Tilemap ────────────────────────────────────────────────────────────
 
 export class Tilemap {
   /**
-   * @param {string[]} rows     — Array de strings, una por fila del mapa ASCII.
-   * @param {Record<string,string>} [legend] — Leyenda extendida que sobreescribe la base.
-   * @param {number}   [tileSize=16] — Tamaño de tile en píxeles lógicos.
+   * @param {string[]} rows Filas del mapa en formato ASCII.
+   * @param {Record<string, string>} [customLegend]
+   * @param {number} [tileSize=TILE_SIZE]
    */
-  constructor(rows, legend = {}, tileSize = 16) {
+  constructor(rows, customLegend = {}, tileSize = TILE_SIZE) {
     this.tileSize = tileSize;
 
-    // Normalizar filas a la misma longitud (la más larga marca el ancho)
+    // Normalizar ancho de filas
     const cols = Math.max(...rows.map(r => r.length));
     this._rows = rows.map(r => r.padEnd(cols, '.'));
+    this._cols = cols;
+    this._rowCount = this._rows.length;
 
-    this._cols      = cols;
-    this._rowCount  = this._rows.length;
+    this._legend = { ...BASE_LEGEND, ...customLegend };
 
-    // Mezclar leyendas (la extendida sobreescribe la base)
-    this._legend = { ...BASE_LEGEND, ...legend };
-
-    // Dimensiones totales en píxeles lógicos
-    this.widthPx  = this._cols     * tileSize;
+    this.widthPx  = this._cols * tileSize;
     this.heightPx = this._rowCount * tileSize;
 
-    // Localizar spawn y entidades en una sola pasada
-    this.spawnPoint = { x: 0, y: 0 };
-    this._entityMap = new Map(); // char → [{col, row}]
+    this.spawnPoint = { x: tileSize, y: tileSize };
+    this._entityMap = new Map();
 
-    this._parseEntities();
+    this._parse();
   }
 
-  // ─── Análisis de entidades ───────────────────────────────────────────────────
+  _parse() {
+    this._entityMap.clear();
 
-  /** Recorre el mapa una vez y registra todas las entidades. */
-  _parseEntities() {
     for (let row = 0; row < this._rowCount; row++) {
       for (let col = 0; col < this._cols; col++) {
         const ch = this._rows[row][col];
 
-        // Registrar posición de la entidad
-        if (!this._entityMap.has(ch)) this._entityMap.set(ch, []);
+        if (!this._entityMap.has(ch)) {
+          this._entityMap.set(ch, []);
+        }
         this._entityMap.get(ch).push({ col, row });
 
-        // Spawn especial: guardar en coordenadas de mundo (esquina superior-izquierda del tile)
         if (ch === 'P') {
           this.spawnPoint = {
             x: col * this.tileSize,
-            y: row * this.tileSize,
+            y: (row + 1) * this.tileSize - 68, // Posicionar los pies del personaje sobre el piso
           };
         }
       }
     }
   }
 
-  // ─── API principal ───────────────────────────────────────────────────────────
-
   /**
-   * Devuelve el carácter ASCII en la celda (col, row).
-   * Fuera del mapa devuelve '#' (arriba/lados) o '.' (abajo).
-   * @param {number} col
-   * @param {number} row
-   * @returns {string}
+   * Devuelve el carácter en la celda (col, row).
+   * Límites: izquierda, derecha y arriba son muros ('#'); abajo es vacío ('.').
    */
   tileAt(col, row) {
-    if (col < 0 || col >= this._cols || row < 0) return '#'; // bordes sólidos
-    if (row >= this._rowCount) return '.';                    // abajo -> vacío
+    if (col < 0 || col >= this._cols || row < 0) return '#';
+    if (row >= this._rowCount) return '.';
     return this._rows[row][col];
   }
 
   /**
-   * ¿El tile en (col, row) bloquea el paso desde cualquier dirección?
-   * @param {number} col
-   * @param {number} row
-   * @returns {boolean}
+   * Modifica un tile dinámicamente en tiempo de ejecución (útil para derrumbes o rejas).
+   */
+  setTile(col, row, char) {
+    if (col < 0 || col >= this._cols || row < 0 || row >= this._rowCount) return;
+    const str = this._rows[row];
+    this._rows[row] = str.substring(0, col) + char + str.substring(col + 1);
+  }
+
+  /**
+   * Comprueba si el tile bloquea el paso en cualquier dirección.
    */
   isSolid(col, row) {
     const type = this._legend[this.tileAt(col, row)];
@@ -115,11 +117,7 @@ export class Tilemap {
   }
 
   /**
-   * ¿El tile es plataforma de un solo sentido?
-   * (Colisiona solo cuando se cae desde arriba y los pies están encima.)
-   * @param {number} col
-   * @param {number} row
-   * @returns {boolean}
+   * Comprueba si el tile es una plataforma atravesable desde abajo.
    */
   isOneWay(col, row) {
     const type = this._legend[this.tileAt(col, row)];
@@ -127,10 +125,7 @@ export class Tilemap {
   }
 
   /**
-   * ¿El tile causa daño (hazard)?
-   * @param {number} col
-   * @param {number} row
-   * @returns {boolean}
+   * Comprueba si el tile es un peligro estático mortal.
    */
   isHazard(col, row) {
     const type = this._legend[this.tileAt(col, row)];
@@ -138,10 +133,7 @@ export class Tilemap {
   }
 
   /**
-   * Convierte coordenadas de mundo (px) a (col, row) de tile.
-   * @param {number} x — px lógico horizontal
-   * @param {number} y — px lógico vertical
-   * @returns {{ col: number, row: number }}
+   * Convierte coordenadas de mundo en px a columna y fila de tile.
    */
   worldToTile(x, y) {
     return {
@@ -151,12 +143,17 @@ export class Tilemap {
   }
 
   /**
-   * Devuelve las posiciones de todas las ocurrencias de un carácter.
-   * Útil para colocar entidades (antorchas, checkpoints, salida...).
-   * @param {string} char — Carácter ASCII a buscar
-   * @returns {{ col: number, row: number }[]}
+   * Devuelve todas las apariciones de un carácter en el mapa.
    */
   getEntities(char) {
     return this._entityMap.get(char) ?? [];
+  }
+
+  get cols() {
+    return this._cols;
+  }
+
+  get rows() {
+    return this._rowCount;
   }
 }

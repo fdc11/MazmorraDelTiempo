@@ -1,28 +1,147 @@
+<!--
+  index.html — Punto de entrada con pantalla de carga cinemática, favicon vectorial,
+  fuentes persas Google Fonts y canvas de juego.
+  Issue #1 — Base del motor | Rama: feature/base-motor
+-->
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-        content="La Mazmorra del Tiempo — plataformas 2D estilo Prince of Persia. Escapa antes de que el tiempo se acabe." />
+        content="La Mazmorra del Tiempo — Plataformas 2D cinemático estilo persa. Escapa antes de que el reloj de arena se agote." />
+  <meta name="theme-color" content="#0e0a10" />
+  <meta name="author" content="Equipo Mazmorra" />
+  <meta property="og:title" content="La Mazmorra del Tiempo" />
+  <meta property="og:description" content="Plataformas 2D atmosférico estilo Prince of Persia. Salta, agárrate a cornisas y escapa antes de que el tiempo se agote." />
+  <meta property="og:type" content="game" />
   <title>La Mazmorra del Tiempo</title>
 
-  <!-- Fuente pixel: Press Start 2P desde Google Fonts (con fallback monospace) -->
+  <!-- Favicon vectorial: reloj de arena dorado (inline SVG, evita 404) -->
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230e0a10'/%3E%3Cpolygon points='6,4 26,4 16,16 26,28 6,28 16,16' fill='%23e8b63a' stroke='%233b2f2a' stroke-width='1.5'/%3E%3Crect x='5' y='3' width='22' height='3' rx='1.5' fill='%23e8b63a'/%3E%3Crect x='5' y='26' width='22' height='3' rx='1.5' fill='%23e8b63a'/%3E%3C/svg%3E" />
+
+  <!-- Google Fonts: Cinzel (títulos/números persas) + Cormorant Garamond (narrativa) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&display=swap"
     rel="stylesheet"
   />
 
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main id="game-wrapper">
-    <canvas id="gameCanvas" aria-label="La Mazmorra del Tiempo — pantalla de juego"></canvas>
-  </main>
 
-  <!-- Punto de entrada del motor — ES2022, ES Modules -->
-  <script type="module" src="js/main.js"></script>
+  <!-- ── Pantalla de carga cinemática ─────────────────────── -->
+  <div id="loading-screen" role="status" aria-live="polite" aria-label="Cargando La Mazmorra del Tiempo">
+
+    <!-- Reloj de arena SVG animado -->
+    <svg id="loading-hourglass" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="goldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style="stop-color:#ffdf7a"/>
+          <stop offset="100%" style="stop-color:#d44a1c"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <!-- Marco exterior -->
+      <rect x="8" y="3" width="64" height="10" rx="5" fill="#e8b63a" filter="url(#glow)"/>
+      <rect x="8" y="67" width="64" height="10" rx="5" fill="#e8b63a" filter="url(#glow)"/>
+      <!-- Silueta del reloj -->
+      <polygon points="12,13 68,13 42,40 68,67 12,67 38,40"
+               fill="url(#goldGrad)" opacity="0.85" filter="url(#glow)"/>
+      <!-- Arena cayendo (animada) -->
+      <rect x="38" y="42" width="4" height="18" rx="2" fill="#ffcc66" opacity="0.9">
+        <animate attributeName="opacity" values="0.9;0.4;0.9" dur="0.8s" repeatCount="indefinite"/>
+      </rect>
+      <!-- Acumulación de arena inferior -->
+      <ellipse cx="40" cy="60" rx="12" ry="5" fill="#e8b63a" opacity="0.7">
+        <animate attributeName="rx" values="4;12;4" dur="3s" repeatCount="indefinite"/>
+      </ellipse>
+    </svg>
+
+    <h1 id="loading-title">LA MAZMORRA DEL TIEMPO</h1>
+
+    <div id="loading-bar-wrap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="loading-bar"></div>
+    </div>
+
+    <p id="loading-status">Invocando los espíritus del tiempo…</p>
+  </div>
+
+  <!-- ── Canvas del juego ─────────────────────────────────── -->
+  <div id="game-wrapper" role="main">
+    <canvas id="gameCanvas" width="960" height="540"
+            aria-label="La Mazmorra del Tiempo — juego de plataformas 2D"
+            tabindex="0">
+    </canvas>
+  </div>
+
+  <!-- ── Motor ES2022 con pantalla de carga ───────────────── -->
+  <script type="module">
+    // Control de pantalla de carga
+    const loadingScreen = document.getElementById('loading-screen');
+    const loadingBar = document.getElementById('loading-bar');
+    const loadingStatus = document.getElementById('loading-status');
+    const loadingBarWrap = document.getElementById('loading-bar-wrap');
+
+    const MESSAGES = [
+      'Invocando los espíritus del tiempo…',
+      'Cargando el mapa de la mazmorra…',
+      'Afilando las cuchillas del destino…',
+      'El reloj de arena despierta…',
+      '¡El tiempo comienza a correr!',
+    ];
+
+    let msgIdx = 0;
+    function advanceLoading(progress) {
+      loadingBar.style.width = `${Math.min(100, progress)}%`;
+      loadingBarWrap.setAttribute('aria-valuenow', Math.round(progress));
+      if (msgIdx < MESSAGES.length - 1) {
+        const newIdx = Math.floor((progress / 100) * (MESSAGES.length - 1));
+        if (newIdx > msgIdx) {
+          msgIdx = newIdx;
+          loadingStatus.style.opacity = '0';
+          setTimeout(() => {
+            loadingStatus.textContent = MESSAGES[msgIdx];
+            loadingStatus.style.opacity = '1';
+          }, 200);
+        }
+      }
+    }
+
+    function hideLoadingScreen() {
+      loadingStatus.textContent = MESSAGES[MESSAGES.length - 1];
+      loadingBar.style.width = '100%';
+      setTimeout(() => {
+        loadingScreen.classList.add('hidden');
+        document.getElementById('gameCanvas').focus();
+      }, 450);
+    }
+
+    // Progreso simulado mientras cargan los módulos
+    let fakeProgress = 0;
+    const fakeInterval = setInterval(() => {
+      fakeProgress = Math.min(fakeProgress + (Math.random() * 14 + 4), 88);
+      advanceLoading(fakeProgress);
+    }, 200);
+
+    // Importar el motor principal
+    import('./js/main.js').then(() => {
+      clearInterval(fakeInterval);
+      advanceLoading(100);
+      setTimeout(hideLoadingScreen, 300);
+    }).catch((err) => {
+      clearInterval(fakeInterval);
+      console.error('[Bootstrap] Error cargando el motor:', err);
+      loadingStatus.textContent = 'Error al cargar. Recarga la página.';
+      loadingStatus.style.color = '#ff5555';
+    });
+  </script>
+
 </body>
 </html>

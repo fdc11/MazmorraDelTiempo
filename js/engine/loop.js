@@ -1,151 +1,130 @@
 /**
- * loop.js — Game loop con timestep fijo (60 Hz) y acumulador.
- *
- * Diseño:
- *   - La lógica se ejecuta en pasos fijos de FIXED_DT segundos.
- *   - El render se ejecuta en cada frame de rAF con interpolación alpha.
- *   - Se clampea el delta máximo a MAX_DELTA para evitar la "espiral de la muerte"
- *     (p.ej. al volver de otra pestaña inactiva).
- *   - Se pausa automáticamente cuando la ventana pierde el foco.
- *
- * Uso:
- *   startLoop(updateFn, drawFn)
- *   stopLoop()
- *   pauseLoop() / resumeLoop()
+ * js/engine/loop.js — Game loop con timestep fijo a 60 Hz, acumulador y control de foco.
+ * Issue #1 — Base del motor | Rama: feature/base-motor
  */
 
 import { FIXED_DT, MAX_DELTA } from '../config.js';
 
-/** ID del requestAnimationFrame activo. */
 let rafId = null;
-
-/** Acumulador de tiempo sin procesar (segundos). */
 let accumulator = 0;
-
-/** Timestamp del último frame (ms). */
 let lastTime = 0;
+let isPaused = false;
+let isRunning = false;
 
-/** Si el loop está en pausa voluntaria. */
-let paused = false;
+// Estadísticas de FPS para depuración
+let fps = 60;
+let fpsCount = 0;
+let fpsTimer = 0;
 
-/** FPS medido para debug. */
-let fps = 0;
-let fpsFrameCount = 0;
-let fpsAccum = 0;
+let updateCallback = null;
+let renderCallback = null;
 
-/** Callbacks inyectados desde main.js. */
-let onUpdate = null; // (dt: number) => void
-let onDraw   = null; // (alpha: number) => void
-
-// ─── Listener de visibilidad ──────────────────────────────────────────────────
-
-function onBlur() {
-  paused = true;
+function handleVisibility() {
+  if (document.hidden) {
+    isPaused = true;
+  } else {
+    lastTime = 0;
+    accumulator = 0;
+    isPaused = false;
+  }
 }
 
-function onFocus() {
-  // Al recuperar el foco, reseteamos lastTime para evitar un delta enorme
+function handleBlur() {
+  isPaused = true;
+}
+
+function handleFocus() {
   lastTime = 0;
-  paused = false;
+  accumulator = 0;
+  isPaused = false;
 }
 
-// ─── Loop principal ───────────────────────────────────────────────────────────
+function tick(timestamp) {
+  if (!isRunning) return;
+  rafId = requestAnimationFrame(tick);
 
-/**
- * Frame principal ejecutado por requestAnimationFrame.
- * @param {number} timestamp — ms desde el inicio de la pestaña
- */
-function frame(timestamp) {
-  rafId = requestAnimationFrame(frame);
+  if (isPaused) return;
 
-  if (paused) return;
+  if (lastTime === 0) {
+    lastTime = timestamp;
+    return;
+  }
 
-  // Delta en segundos, clampado para evitar saltos
-  if (lastTime === 0) lastTime = timestamp;
   const rawDelta = (timestamp - lastTime) / 1000;
   lastTime = timestamp;
   const delta = Math.min(rawDelta, MAX_DELTA);
 
-  // Medición de FPS
-  fpsAccum += delta;
-  fpsFrameCount++;
-  if (fpsAccum >= 1) {
-    fps = Math.round(fpsFrameCount / fpsAccum);
-    fpsFrameCount = 0;
-    fpsAccum = 0;
+  // Cálculo de FPS
+  fpsTimer += delta;
+  fpsCount++;
+  if (fpsTimer >= 1.0) {
+    fps = Math.round(fpsCount / fpsTimer);
+    fpsCount = 0;
+    fpsTimer = 0;
   }
 
-  // Acumular tiempo y ejecutar tantos ticks lógicos como corresponda
+  // Ticks de física con paso fijo
   accumulator += delta;
   while (accumulator >= FIXED_DT) {
-    onUpdate?.(FIXED_DT);
+    if (updateCallback) {
+      updateCallback(FIXED_DT);
+    }
     accumulator -= FIXED_DT;
   }
 
-  // Alpha de interpolación para el render (0..1)
+  // Render con interpolación alpha
   const alpha = accumulator / FIXED_DT;
-  onDraw?.(alpha);
+  if (renderCallback) {
+    renderCallback(alpha);
+  }
 }
 
-// ─── API pública ──────────────────────────────────────────────────────────────
-
 /**
- * Inicia el game loop.
- * @param {(dt: number) => void}     updateFn — Función de lógica fija
- * @param {(alpha: number) => void}  drawFn   — Función de render
+ * Inicia el loop de juego.
+ * @param {(dt: number) => void} onUpdate
+ * @param {(alpha: number) => void} onRender
  */
-export function startLoop(updateFn, drawFn) {
-  onUpdate = updateFn;
-  onDraw   = drawFn;
+export function startLoop(onUpdate, onRender) {
+  updateCallback = onUpdate;
+  renderCallback = onRender;
 
-  window.addEventListener('blur',  onBlur);
-  window.addEventListener('focus', onFocus);
-
-  lastTime    = 0;
+  if (isRunning) return;
+  isRunning = true;
+  isPaused = false;
+  lastTime = 0;
   accumulator = 0;
-  paused      = false;
-  rafId       = requestAnimationFrame(frame);
+
+  window.addEventListener('visibilitychange', handleVisibility);
+  window.addEventListener('blur', handleBlur);
+  window.addEventListener('focus', handleFocus);
+
+  rafId = requestAnimationFrame(tick);
 }
 
 /**
- * Detiene el game loop por completo.
+ * Detiene el loop de juego.
  */
 export function stopLoop() {
-  if (rafId !== null) {
+  isRunning = false;
+  if (rafId) {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
-  window.removeEventListener('blur',  onBlur);
-  window.removeEventListener('focus', onFocus);
+  window.removeEventListener('visibilitychange', handleVisibility);
+  window.removeEventListener('blur', handleBlur);
+  window.removeEventListener('focus', handleFocus);
 }
 
-/**
- * Pausa el loop (sigue corriendo rAF pero no actualiza ni dibuja).
- */
 export function pauseLoop() {
-  paused = true;
+  isPaused = true;
 }
 
-/**
- * Reanuda el loop después de una pausa.
- */
 export function resumeLoop() {
-  lastTime = 0; // Evitar salto de tiempo al reanudar
-  paused   = false;
+  lastTime = 0;
+  accumulator = 0;
+  isPaused = false;
 }
 
-/**
- * Devuelve los FPS medidos en el último segundo.
- * @returns {number}
- */
 export function getFPS() {
   return fps;
-}
-
-/**
- * Indica si el loop está actualmente en pausa.
- * @returns {boolean}
- */
-export function isPaused() {
-  return paused;
 }

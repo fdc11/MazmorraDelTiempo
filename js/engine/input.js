@@ -1,35 +1,29 @@
 /**
- * input.js — Manejo de teclado con estados por frame.
- *
- * Estados disponibles por tecla:
- *   down     → tecla está presionada en este frame
- *   pressed  → tecla se presionó justo este frame (flanco ascendente)
- *   released → tecla se soltó justo este frame  (flanco descendente)
- *
- * Los estados pressed / released se limpian al llamar a endFrame().
+ * js/engine/input.js — Manejo de teclado: down, pressed y released por frame con preventDefault.
+ * Issue #1 — Base del motor | Rama: feature/base-motor
  */
 
-import { SCROLL_BLOCK_KEYS } from '../config.js';
+import { KEYS, SCROLL_BLOCK_KEYS } from '../config.js';
 
-/** @type {Map<string, boolean>} Teclas actualmente presionadas. */
 const downKeys = new Map();
-
-/** @type {Set<string>} Teclas presionadas en este frame (flanco). */
 const pressedKeys = new Set();
-
-/** @type {Set<string>} Teclas soltadas en este frame (flanco). */
 const releasedKeys = new Set();
 
-// ─── Listeners de DOM ─────────────────────────────────────────────────────────
+// Soporte para captura de primer input para desbloqueo de audio
+let hasInteracted = false;
+const interactionCallbacks = new Set();
 
 function onKeyDown(event) {
-  // Evitar scroll del navegador con teclas de juego
   if (SCROLL_BLOCK_KEYS.has(event.code)) {
     event.preventDefault();
   }
 
+  if (!hasInteracted) {
+    hasInteracted = true;
+    for (const cb of interactionCallbacks) cb();
+  }
+
   if (!downKeys.get(event.code)) {
-    // Solo registrar flanco ascendente (ignorar key-repeat del SO)
     pressedKeys.add(event.code);
   }
   downKeys.set(event.code, true);
@@ -40,28 +34,43 @@ function onKeyUp(event) {
   releasedKeys.add(event.code);
 }
 
-/** Limpia todos los estados al perder el foco (evita teclas "atascadas"). */
 function onBlur() {
   downKeys.clear();
   pressedKeys.clear();
   releasedKeys.clear();
 }
 
-// ─── API pública ──────────────────────────────────────────────────────────────
-
-/**
- * Inicializa los listeners de teclado.
- * Llamar una sola vez desde main.js.
- */
-export function initInput() {
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup',   onKeyUp);
-  window.addEventListener('blur',    onBlur);
+function onPointerDown() {
+  if (!hasInteracted) {
+    hasInteracted = true;
+    for (const cb of interactionCallbacks) cb();
+  }
 }
 
 /**
- * Limpia los estados de flanco al final de cada frame lógico.
- * Debe llamarse al final de cada ciclo de update en el game loop.
+ * Inicializa los listeners del DOM.
+ */
+export function initInput() {
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  window.addEventListener('pointerdown', onPointerDown);
+}
+
+/**
+ * Registra un callback que se ejecuta tras la primera interacción (click o tecla).
+ * @param {() => void} cb
+ */
+export function onFirstInteraction(cb) {
+  if (hasInteracted) {
+    cb();
+  } else {
+    interactionCallbacks.add(cb);
+  }
+}
+
+/**
+ * Limpia los flancos ascendentes y descendentes al finalizar el frame lógico.
  */
 export function endFrame() {
   pressedKeys.clear();
@@ -69,40 +78,48 @@ export function endFrame() {
 }
 
 /**
- * Comprueba si alguna de las teclas del array está presionada ahora.
- * @param {string[]} codes — Array de KeyboardEvent.code
+ * Comprueba si alguna tecla de la lista o acción está presionada.
+ * @param {string[]|string} codes
  * @returns {boolean}
  */
 export function isDown(codes) {
+  if (typeof codes === 'string') {
+    if (KEYS[codes]) return isDown(KEYS[codes]);
+    return downKeys.get(codes) === true;
+  }
   return codes.some(c => downKeys.get(c) === true);
 }
 
 /**
- * Comprueba si alguna de las teclas se presionó este frame (flanco).
- * @param {string[]} codes
+ * Comprueba si alguna tecla fue pulsada justo en este frame.
+ * @param {string[]|string} codes
  * @returns {boolean}
  */
 export function isPressed(codes) {
+  if (typeof codes === 'string') {
+    if (KEYS[codes]) return isPressed(KEYS[codes]);
+    return pressedKeys.has(codes);
+  }
   return codes.some(c => pressedKeys.has(c));
 }
 
 /**
- * Comprueba si alguna de las teclas se soltó este frame.
- * @param {string[]} codes
+ * Comprueba si alguna tecla fue soltada justo en este frame.
+ * @param {string[]|string} codes
  * @returns {boolean}
  */
 export function isReleased(codes) {
+  if (typeof codes === 'string') {
+    if (KEYS[codes]) return isReleased(KEYS[codes]);
+    return releasedKeys.has(codes);
+  }
   return codes.some(c => releasedKeys.has(c));
 }
 
-/**
- * Devuelve un snapshot legible del estado actual de input.
- * Útil para la pantalla de debug / prueba temporal.
- * @returns {{ down: string[], pressed: string[] }}
- */
 export function getDebugState() {
-  return {
-    down:    [...downKeys.entries()].filter(([, v]) => v).map(([k]) => k),
-    pressed: [...pressedKeys],
-  };
+  const active = [];
+  for (const [code, val] of downKeys.entries()) {
+    if (val) active.push(code);
+  }
+  return { active, pressed: Array.from(pressedKeys) };
 }
