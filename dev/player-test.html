@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>La Mazmorra del Tiempo — Player Test</title>
+  <style>
+    /* ── Reset y fuentes ───────────────────────────────────────────────────── */
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0c14;
+      color: #f0f0f0;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+      gap: 1rem;
+    }
+
+    h1 {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 0.75rem;
+      color: #f0c040;
+      letter-spacing: 2px;
+      text-shadow: 0 0 12px rgba(240,192,64,0.5);
+      margin-top: 0.5rem;
+    }
+
+    /* ── Contenedor del canvas ─────────────────────────────────────────────── */
+    #canvas-wrap {
+      position: relative;
+      border: 2px solid #2d3550;
+      box-shadow: 0 0 32px rgba(58,95,160,0.4), 0 0 8px rgba(240,192,64,0.15);
+      background: #0a0c14;
+    }
+
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      position: static !important; /* sobreescribir el posicionamiento del renderer */
+    }
+
+    /* ── Panel de debug ────────────────────────────────────────────────────── */
+    #debug {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(160px, 1fr));
+      gap: 0.5rem 1.5rem;
+      width: 100%;
+      max-width: 640px;
+      background: #1a1f2e;
+      border: 1px solid #2d3550;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.7rem;
+      font-family: 'Press Start 2P', monospace;
+      line-height: 1.8;
+    }
+
+    .debug-group { display: flex; flex-direction: column; gap: 0.15rem; }
+    .debug-label { color: #8090a0; font-size: 0.55rem; text-transform: uppercase; }
+    .debug-value { color: #f0f0f0; }
+    .debug-value.highlight { color: #f0c040; }
+
+    /* ── Controles ─────────────────────────────────────────────────────────── */
+    #controls {
+      font-size: 0.6rem;
+      color: #8090a0;
+      font-family: 'Press Start 2P', monospace;
+      text-align: center;
+      line-height: 2;
+    }
+
+    kbd {
+      background: #2d3550;
+      border: 1px solid #4a5580;
+      border-radius: 3px;
+      padding: 1px 4px;
+      color: #f0f0f0;
+      font-family: inherit;
+      font-size: 0.55rem;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>⚔ Player Test — La Mazmorra del Tiempo</h1>
+
+  <div id="canvas-wrap">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <!-- Panel de debug -->
+  <div id="debug">
+    <div class="debug-group">
+      <span class="debug-label">Estado</span>
+      <span class="debug-value highlight" id="d-state">idle</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Facing</span>
+      <span class="debug-value" id="d-facing">→</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">En suelo</span>
+      <span class="debug-value" id="d-ground">sí</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Vel X</span>
+      <span class="debug-value" id="d-vx">0</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Vel Y</span>
+      <span class="debug-value" id="d-vy">0</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Última caída</span>
+      <span class="debug-value highlight" id="d-fall">0 tiles</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Pos X</span>
+      <span class="debug-value" id="d-x">0</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">Pos Y</span>
+      <span class="debug-value" id="d-y">0</span>
+    </div>
+    <div class="debug-group">
+      <span class="debug-label">FPS</span>
+      <span class="debug-value" id="d-fps">0</span>
+    </div>
+  </div>
+
+  <div id="controls">
+    <kbd>A</kbd>/<kbd>D</kbd> o <kbd>←</kbd>/<kbd>→</kbd> mover &nbsp;|&nbsp;
+    <kbd>W</kbd>/<kbd>Espacio</kbd> saltar &nbsp;|&nbsp;
+    <kbd>S</kbd> agacharse / bajar plataforma / soltar borde
+  </div>
+
+  <script type="module">
+    // ── Importar módulos del engine (rutas relativas desde dev/) ─────────────
+    import { initRenderer, beginFrame, endRenderFrame, getCtx, drawRect, drawText } from '../js/engine/renderer.js';
+    import { initInput, endFrame as endInputFrame }                                  from '../js/engine/input.js';
+    import { initCamera, updateCamera, followTarget, applyCameraTransform, resetCameraTransform, getCameraPos } from '../js/engine/camera.js';
+    import { startLoop, getFPS }                                                      from '../js/engine/loop.js';
+
+    // ── Módulos nuevos ─────────────────────────────────────────────────────────
+    import { Tilemap }                             from '../js/engine/tilemap.js';
+    import { Player }                              from '../js/player.js';
+    import { TEST_LEVEL_ROWS, TEST_LEVEL_LEGEND }  from './testLevel.js';
+
+    // ── Constantes locales ────────────────────────────────────────────────────
+    const CANVAS_W = 320;
+    const CANVAS_H = 200;
+    const TILE     = 16;
+
+    // ── Paleta de colores de la mazmorra ──────────────────────────────────────
+    const PAL = {
+      VOID:        '#0a0c14',
+      STONE_DARK:  '#1a1f2e',
+      STONE_MID:   '#2d3550',
+      STONE_LIGHT: '#4a5580',
+      TIME_GOLD:   '#f0c040',
+      TORCH_CORE:  '#ff9f1c',
+      HERO_CLOTH:  '#3a5fa0',
+      DANGER:      '#c0392b',
+      SPIKE:       '#7f8c8d',
+      TEXT_WHITE:  '#f0f0f0',
+      TEXT_DIM:    '#8090a0',
+    };
+
+    // ── Setup del canvas ──────────────────────────────────────────────────────
+    const canvas = document.getElementById('game-canvas');
+
+    // initRenderer gestiona el tamaño y la escala automáticamente
+    initRenderer(canvas);
+    initInput();
+
+    // ── Tilemap ───────────────────────────────────────────────────────────────
+    const tilemap = new Tilemap(TEST_LEVEL_ROWS, TEST_LEVEL_LEGEND, TILE);
+
+    // Inicializar cámara con los límites del mapa
+    initCamera(tilemap.widthPx, tilemap.heightPx);
+
+    // ── Jugador ───────────────────────────────────────────────────────────────
+    const { x: spawnX, y: spawnY } = tilemap.spawnPoint;
+    const player = new Player(spawnX, spawnY);
+
+    // Callbacks de prueba (solo log en consola; sin daño)
+    player.onLand   = (dist) => console.log(`[onLand] caída de ${dist.toFixed(1)} tiles`);
+    player.onHazard = (type) => console.log(`[onHazard] tocó hazard tipo '${type}'`);
+
+    /** Objeto world que el jugador necesita */
+    const world = { tilemap };
+
+    // ── Elementos de debug del DOM ────────────────────────────────────────────
+    const dState  = document.getElementById('d-state');
+    const dFacing = document.getElementById('d-facing');
+    const dGround = document.getElementById('d-ground');
+    const dVx     = document.getElementById('d-vx');
+    const dVy     = document.getElementById('d-vy');
+    const dFall   = document.getElementById('d-fall');
+    const dX      = document.getElementById('d-x');
+    const dY      = document.getElementById('d-y');
+    const dFps    = document.getElementById('d-fps');
+
+    // ── Game loop ─────────────────────────────────────────────────────────────
+
+    function update(dt) {
+      player.update(dt, null, world);
+
+      // Cámara sigue al centro del jugador
+      followTarget(
+        player.x + 5,   // centro X del hitbox
+        player.y + 11,  // centro Y del hitbox
+      );
+      updateCamera(dt);
+
+      endInputFrame();
+
+      // Actualizar debug DOM
+      dState.textContent  = player.state;
+      dFacing.textContent = player.facing === 1 ? '→' : '←';
+      dGround.textContent = player._onGround ? 'sí' : 'no';
+      dVx.textContent     = player.vx.toFixed(1);
+      dVy.textContent     = player.vy.toFixed(1);
+      dFall.textContent   = `${player.lastFallDistance.toFixed(1)} tiles`;
+      dX.textContent      = player.x.toFixed(0);
+      dY.textContent      = player.y.toFixed(0);
+      dFps.textContent    = getFPS();
+    }
+
+    function draw(alpha) {
+      beginFrame();
+
+      const ctx = getCtx();
+
+      // Fondo
+      ctx.fillStyle = PAL.VOID;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+      // Aplicar transformación de cámara
+      applyCameraTransform(ctx);
+
+      // ── Dibujar tilemap ─────────────────────────────────────────────────────
+      drawTilemap(ctx, tilemap);
+
+      // ── Dibujar hitbox debug (semitransparente) ─────────────────────────────
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle   = '#00ff88';
+      ctx.fillRect(
+        Math.round(player.hitbox.x),
+        Math.round(player.hitbox.y),
+        player.hitbox.w,
+        player.hitbox.h,
+      );
+      ctx.globalAlpha = 1;
+
+      // ── Dibujar jugador ─────────────────────────────────────────────────────
+      player.draw(null, null);
+
+      // Restaurar transform de cámara
+      resetCameraTransform(ctx);
+
+      // ── HUD en pantalla (coordenadas de pantalla, no de mundo) ──────────────
+      drawHUD(ctx, player);
+
+      endRenderFrame();
+    }
+
+    // ── Dibujado de tiles ─────────────────────────────────────────────────────
+
+    function drawTilemap(ctx, tm) {
+      const { x: camX, y: camY } = getCameraPos();
+
+      // Solo dibujar tiles visibles (culling simple)
+      const startCol = Math.max(0, Math.floor(camX / TILE));
+      const endCol   = Math.min(tm._cols - 1,   Math.ceil((camX + CANVAS_W) / TILE));
+      const startRow = Math.max(0, Math.floor(camY / TILE));
+      const endRow   = Math.min(tm._rowCount - 1, Math.ceil((camY + CANVAS_H) / TILE));
+
+      for (let row = startRow; row <= endRow; row++) {
+        for (let col = startCol; col <= endCol; col++) {
+          const ch  = tm.tileAt(col, row);
+          const px  = col * TILE;
+          const py  = row * TILE;
+
+          switch (ch) {
+            case '#':
+              // Muro sólido con detalle de piedra
+              ctx.fillStyle = PAL.STONE_MID;
+              ctx.fillRect(px, py, TILE, TILE);
+              ctx.fillStyle = PAL.STONE_DARK;
+              ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+              ctx.fillStyle = PAL.STONE_LIGHT;
+              ctx.fillRect(px + 1, py + 1, TILE - 2, 1);
+              ctx.fillRect(px + 1, py + 1, 1, TILE - 2);
+              break;
+
+            case '=':
+              // Plataforma de un solo sentido: borde dorado
+              ctx.fillStyle = PAL.TIME_GOLD;
+              ctx.fillRect(px, py, TILE, 2);
+              ctx.fillStyle = PAL.STONE_MID;
+              ctx.fillRect(px, py + 2, TILE, TILE - 2);
+              break;
+
+            case '^':
+              // Pinchos
+              ctx.fillStyle = PAL.SPIKE;
+              for (let i = 0; i < 3; i++) {
+                const sx = px + 2 + i * 4;
+                ctx.beginPath();
+                ctx.moveTo(sx,     py + TILE);
+                ctx.lineTo(sx + 2, py + 4);
+                ctx.lineTo(sx + 4, py + TILE);
+                ctx.closePath();
+                ctx.fill();
+              }
+              break;
+
+            case 'P':
+              // Spawn (solo en debug)
+              ctx.fillStyle = 'rgba(0,255,0,0.15)';
+              ctx.fillRect(px, py, TILE, TILE);
+              break;
+
+            case 'E':
+              ctx.fillStyle = PAL.TIME_GOLD;
+              ctx.fillRect(px + 4, py + 2, TILE - 8, TILE - 4);
+              break;
+
+            case 'T':
+              // Antorcha decorativa
+              ctx.fillStyle = PAL.STONE_DARK;
+              ctx.fillRect(px + 6, py + 8, 4, 8);
+              ctx.fillStyle = PAL.TORCH_CORE;
+              ctx.fillRect(px + 5, py + 4, 6, 5);
+              ctx.fillStyle = 'rgba(255,159,28,0.4)';
+              ctx.fillRect(px + 3, py + 2, 10, 8);
+              break;
+
+            default:
+              // Vacío: nada
+              break;
+          }
+        }
+      }
+    }
+
+    // ── HUD simple en pantalla ────────────────────────────────────────────────
+
+    function drawHUD(ctx, player) {
+      ctx.fillStyle = 'rgba(10,12,20,0.65)';
+      ctx.fillRect(2, 2, 120, 32);
+
+      ctx.fillStyle    = PAL.TIME_GOLD;
+      ctx.font         = '5px "Press Start 2P", monospace';
+      ctx.textBaseline = 'top';
+      ctx.textAlign    = 'left';
+      ctx.fillText(`Estado: ${player.state}`, 5, 5);
+
+      ctx.fillStyle = PAL.TEXT_DIM;
+      ctx.fillText(`vx:${player.vx.toFixed(0)}  vy:${player.vy.toFixed(0)}`, 5, 14);
+      ctx.fillText(`caída: ${player.lastFallDistance.toFixed(1)} tiles`,      5, 23);
+    }
+
+    // ── Arrancar ──────────────────────────────────────────────────────────────
+    startLoop(update, draw);
+  </script>
+</body>
+</html>
