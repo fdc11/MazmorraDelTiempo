@@ -1,144 +1,155 @@
 /**
- * camera.js — Cámara 2D con seguimiento suavizado y screen shake.
- *
- * La cámara transforma coordenadas de mundo a coordenadas de pantalla lógica.
- * Para dibujar: x_screen = x_world - camera.x
- *
- * Uso:
- *   initCamera(mapW, mapH)  → define límites del mapa
- *   updateCamera(dt)        → avanza lerp y decaimiento del shake
- *   followTarget(x, y)      → informa posición del objetivo (p.ej. jugador)
- *   startShake(amplitude)   → inicia screen shake
- *   worldToScreen(x, y)     → convierte coordenadas de mundo a pantalla
+ * js/engine/camera.js — Cámara cinemática 2D con lerp, límites de mapa, look-ahead, shake y zoom.
+ * Issue #1 — Base del motor | Rama: feature/base-motor
  */
 
 import { CANVAS, CAMERA } from '../config.js';
 
-/** Posición actual de la cámara en coordenadas de mundo (esquina superior izquierda). */
 let camX = 0;
 let camY = 0;
-
-/** Posición objetivo hacia la que la cámara hace lerp. */
 let targetX = 0;
 let targetY = 0;
 
-/** Límites del mapa en px lógicos (para no salir fuera). */
 let mapWidth  = CANVAS.WIDTH;
 let mapHeight = CANVAS.HEIGHT;
 
-/** Estado del screen shake. */
 let shakeAmplitude = 0;
+let currentShakeX = 0;
+let currentShakeY = 0;
 
-// ─── API pública ──────────────────────────────────────────────────────────────
+let currentZoom = 1.0;
+let targetZoom = 1.0;
 
 /**
- * Inicializa la cámara con los límites del mapa.
- * @param {number} mapW — Ancho del mapa en px lógicos
- * @param {number} mapH — Alto del mapa en px lógicos
+ * Inicializa la cámara con las dimensiones del mapa actual.
+ * @param {number} wPx
+ * @param {number} hPx
  */
-export function initCamera(mapW, mapH) {
-  mapWidth  = mapW;
-  mapHeight = mapH;
+export function initCamera(wPx, hPx) {
+  mapWidth  = Math.max(CANVAS.WIDTH, wPx);
+  mapHeight = Math.max(CANVAS.HEIGHT, hPx);
+
   camX = 0;
   camY = 0;
   targetX = 0;
   targetY = 0;
   shakeAmplitude = 0;
+  currentShakeX = 0;
+  currentShakeY = 0;
+  currentZoom = 1.0;
+  targetZoom = 1.0;
 }
 
 /**
- * Informa a la cámara de la posición del objetivo a seguir.
- * Normalmente se llama con el centro del jugador cada frame.
- * @param {number} x — Centro del objetivo en mundo X
- * @param {number} y — Centro del objetivo en mundo Y
+ * Centra la cámara instantáneamente en un punto (útil para spawn o teletransporte).
+ * @param {number} x
+ * @param {number} y
  */
-export function followTarget(x, y) {
-  // La cámara centra al objetivo en la pantalla lógica
-  targetX = x - CANVAS.WIDTH  / 2;
+export function resetCamera(x, y) {
+  camX = clamp(x - CANVAS.WIDTH / 2, 0, Math.max(0, mapWidth - CANVAS.WIDTH));
+  camY = clamp(y - CANVAS.HEIGHT / 2, 0, Math.max(0, mapHeight - CANVAS.HEIGHT));
+  targetX = camX;
+  targetY = camY;
+}
+
+/**
+ * Informa a la cámara de la posición y orientación del objetivo a seguir.
+ * @param {number} x
+ * @param {number} y
+ * @param {number} facing 1 para derecha, -1 para izquierda
+ */
+export function followTarget(x, y, facing = 1) {
+  const lookOffset = facing * (CAMERA.LOOK_AHEAD || 60);
+  targetX = x + lookOffset - CANVAS.WIDTH / 2;
   targetY = y - CANVAS.HEIGHT / 2;
 }
 
 /**
- * Avanza el estado de la cámara (lerp + shake decay).
- * Llamar una vez por frame lógico.
- * @param {number} dt — Delta time fijo en segundos
+ * Actualiza el lerp, decaimiento del shake y zoom.
+ * @param {number} dt
  */
 export function updateCamera(dt) {
-  // Lerp hacia el objetivo (independiente del dt para suavidad uniforme)
-  camX += (targetX - camX) * CAMERA.LERP;
-  camY += (targetY - camY) * CAMERA.LERP;
+  const lerpFactor = CAMERA.LERP || 0.08;
 
-  // Clamp a los límites del mapa
-  camX = clamp(camX, 0, Math.max(0, mapWidth  - CANVAS.WIDTH));
-  camY = clamp(camY, 0, Math.max(0, mapHeight - CANVAS.HEIGHT));
+  camX += (targetX - camX) * lerpFactor;
+  camY += (targetY - camY) * lerpFactor;
 
-  // Decaimiento exponencial del shake
-  shakeAmplitude *= CAMERA.SHAKE_DECAY;
-  if (shakeAmplitude < 0.5) shakeAmplitude = 0;
+  // Clampear a los bordes del mapa
+  const maxCamX = Math.max(0, mapWidth - CANVAS.WIDTH);
+  const maxCamY = Math.max(0, mapHeight - CANVAS.HEIGHT);
+  camX = clamp(camX, 0, maxCamX);
+  camY = clamp(camY, 0, maxCamY);
+
+  // Decaimiento del screen shake
+  if (shakeAmplitude > 0.3) {
+    currentShakeX = (Math.random() * 2 - 1) * shakeAmplitude;
+    currentShakeY = (Math.random() * 2 - 1) * shakeAmplitude;
+    shakeAmplitude *= CAMERA.SHAKE_DECAY;
+  } else {
+    shakeAmplitude = 0;
+    currentShakeX = 0;
+    currentShakeY = 0;
+  }
+
+  // Interpolación de zoom
+  currentZoom += (targetZoom - currentZoom) * 0.1;
 }
 
 /**
- * Inicia un screen shake con la amplitud dada.
- * @param {number} amplitude — Amplitud inicial en px lógicos
+ * Inicia una sacudida de pantalla con decaimiento.
+ * @param {number} amplitude
  */
 export function startShake(amplitude) {
   shakeAmplitude = Math.max(shakeAmplitude, amplitude);
 }
 
 /**
- * Convierte coordenadas de mundo a coordenadas de pantalla lógica.
- * @param {number} worldX
- * @param {number} worldY
+ * Define el zoom deseado (1.0 = normal, 1.15 = leve zoom de muerte).
+ * @param {number} zoom
+ */
+export function setZoom(zoom) {
+  targetZoom = zoom;
+}
+
+/**
+ * Convierte coordenadas de mundo a coordenadas lógicas de pantalla considerando shake y zoom.
+ * @param {number} wx
+ * @param {number} wy
  * @returns {{ x: number, y: number }}
  */
-export function worldToScreen(worldX, worldY) {
-  const shakeX = shakeAmplitude > 0 ? randRange(-shakeAmplitude, shakeAmplitude) : 0;
-  const shakeY = shakeAmplitude > 0 ? randRange(-shakeAmplitude, shakeAmplitude) : 0;
+export function worldToScreen(wx, wy) {
+  const rawX = wx - camX + currentShakeX;
+  const rawY = wy - camY + currentShakeY;
 
+  if (Math.abs(currentZoom - 1.0) < 0.001) {
+    return { x: rawX, y: rawY };
+  }
+
+  // Escalar desde el centro de la pantalla
+  const cx = CANVAS.WIDTH / 2;
+  const cy = CANVAS.HEIGHT / 2;
   return {
-    x: worldX - camX + shakeX,
-    y: worldY - camY + shakeY,
+    x: cx + (rawX - cx) * currentZoom,
+    y: cy + (rawY - cy) * currentZoom,
   };
 }
 
 /**
- * Devuelve la posición actual de la cámara (útil para culling).
- * @returns {{ x: number, y: number }}
+ * Devuelve el área visible actual en coordenadas de mundo.
  */
+export function getVisibleBounds() {
+  return {
+    left:   camX - 60,
+    top:    camY - 60,
+    right:  camX + CANVAS.WIDTH + 60,
+    bottom: camY + CANVAS.HEIGHT + 60,
+  };
+}
+
 export function getCameraPos() {
-  return { x: camX, y: camY };
+  return { x: camX, y: camY, shakeX: currentShakeX, shakeY: currentShakeY, zoom: currentZoom };
 }
 
-/**
- * Aplica el transform de cámara al contexto 2D para dibujar en coordenadas de mundo.
- * Usar junto con resetCameraTransform().
- * @param {CanvasRenderingContext2D} ctx
- */
-export function applyCameraTransform(ctx) {
-  const shakeX = shakeAmplitude > 0 ? randRange(-shakeAmplitude, shakeAmplitude) : 0;
-  const shakeY = shakeAmplitude > 0 ? randRange(-shakeAmplitude, shakeAmplitude) : 0;
-
-  ctx.save();
-  ctx.translate(
-    Math.round(-camX + shakeX),
-    Math.round(-camY + shakeY),
-  );
-}
-
-/**
- * Restaura el transform de cámara.
- * @param {CanvasRenderingContext2D} ctx
- */
-export function resetCameraTransform(ctx) {
-  ctx.restore();
-}
-
-// ─── Utilidades internas ──────────────────────────────────────────────────────
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function randRange(min, max) {
-  return min + Math.random() * (max - min);
+function clamp(val, min, max) {
+  return Math.max(min, Math.min(max, val));
 }

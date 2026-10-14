@@ -1,108 +1,130 @@
 /**
- * renderer.js — Canvas lógico 320×200 escalado a pantalla física.
- *
- * Estrategia de escalado:
- *   1. Se calcula el máximo entero k tal que k*320 ≤ vw y k*200 ≤ vh.
- *   2. Si no hay entero válido (ventana muy pequeña), se usa el máximo float.
- *   3. image-rendering: pixelated en CSS + imageSmoothingEnabled = false en 2D.
- *
- * Uso:
- *   initRenderer(canvasEl)  → llamar una sola vez al inicio
- *   beginFrame()            → llamar al inicio de cada frame de render
- *   endRenderFrame()        → restaura transform
- *   helpers: drawRect, drawText, fadeScreen, etc.
+ * js/engine/renderer.js — Canvas 960×540 con escalado DPI de alta definición, letterbox y utilidades vectoriales.
+ * Issue #1 — Base del motor | Rama: feature/base-motor
  */
 
 import { CANVAS, PALETTE } from '../config.js';
 
-/** @type {HTMLCanvasElement} Canvas del DOM. */
-let domCanvas;
+let domCanvas = null;
+let ctx = null;
 
-/** @type {CanvasRenderingContext2D} Contexto 2D del canvas. */
-let ctx;
-
-/** Escala actual (px físicos por px lógico). */
-let scale = 1;
-
-/** Offset horizontal (para letterboxing). */
-let offsetX = 0;
-
-/** Offset vertical (para pillarboxing). */
-let offsetY = 0;
-
-// ─── Inicialización ───────────────────────────────────────────────────────────
+let dpr = 1;
+let cssWidth = CANVAS.WIDTH;
+let cssHeight = CANVAS.HEIGHT;
+let scaleFactor = 1;
 
 /**
- * Inicializa el renderer enlazándolo con el canvas del DOM.
+ * Inicializa el contexto del canvas y configura el redimensionamiento responsivo.
  * @param {HTMLCanvasElement} canvas
  */
 export function initRenderer(canvas) {
   domCanvas = canvas;
-  ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
+  ctx = canvas.getContext('2d', { alpha: false });
 
-  // Escalar al tamaño inicial de ventana
-  handleResize();
-
-  // Recalcular escala cuando cambie el tamaño de la ventana
   window.addEventListener('resize', handleResize);
+  handleResize();
 }
 
 /**
- * Recalcula la escala y ajusta el tamaño físico del canvas.
- * Se llama automáticamente en cada evento resize.
+ * Recalcula el tamaño del canvas preservando la relación 16:9 y aprovechando devicePixelRatio.
  */
 export function handleResize() {
+  if (!domCanvas || !ctx) return;
+
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  // Escala entera máxima
-  const kw = Math.floor(vw / CANVAS.WIDTH);
-  const kh = Math.floor(vh / CANVAS.HEIGHT);
-  const intScale = Math.max(1, Math.min(kw, kh));
+  dpr = window.devicePixelRatio || 1;
 
-  // Si la escala entera encaja, la usamos; si no, usamos la float mínima
-  const floatScale = Math.min(vw / CANVAS.WIDTH, vh / CANVAS.HEIGHT);
-  scale = (intScale * CANVAS.WIDTH <= vw && intScale * CANVAS.HEIGHT <= vh)
-    ? intScale
-    : floatScale;
+  // Ajuste manteniendo la relación de aspecto 16:9
+  let w = vw;
+  let h = vw / CANVAS.ASPECT;
 
-  // Actualizar tamaño físico del canvas
-  domCanvas.width  = Math.round(CANVAS.WIDTH  * scale);
-  domCanvas.height = Math.round(CANVAS.HEIGHT * scale);
+  if (h > vh) {
+    h = vh;
+    w = vh * CANVAS.ASPECT;
+  }
 
-  // Centrar con CSS si hay espacio extra
-  offsetX = Math.floor((vw - domCanvas.width)  / 2);
-  offsetY = Math.floor((vh - domCanvas.height) / 2);
+  cssWidth = Math.floor(w);
+  cssHeight = Math.floor(h);
 
-  domCanvas.style.left = `${offsetX}px`;
-  domCanvas.style.top  = `${offsetY}px`;
+  // Dimensiones físicas del búfer basadas en DPR para vectores nítidos
+  domCanvas.width = Math.round(cssWidth * dpr);
+  domCanvas.height = Math.round(cssHeight * dpr);
 
-  // Restaurar smoothing tras resize (algunos navegadores lo resetean)
-  ctx.imageSmoothingEnabled = false;
+  // Dimensiones visuales CSS
+  domCanvas.style.width = `${cssWidth}px`;
+  domCanvas.style.height = `${cssHeight}px`;
+
+  // Factor de escala de coordenadas lógicas (960x540) a búfer físico
+  scaleFactor = (cssWidth / CANVAS.WIDTH) * dpr;
+
+  // Activar suavizado para ilustración vectorial
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 }
 
-// ─── Frame lifecycle ──────────────────────────────────────────────────────────
-
 /**
- * Aplica el transform de escala y limpia el canvas.
- * Llamar al inicio de cada frame de render.
+ * Prepara el canvas para el renderizado del frame lógico actual.
  */
 export function beginFrame() {
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.clearRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+  if (!ctx) return;
+  ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+
+  // Fondo base profundo
+  ctx.fillStyle = PALETTE.DEEP_SHADOW;
+  ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+}
+
+// ─── Posprocesamiento: Screen Flash ──────────────────────────────────────────
+let flashColor = 'rgba(180, 25, 30, 0.5)';
+let flashAlpha = 0;
+let flashTimer = 0;
+let flashDuration = 0.2;
+
+/**
+ * Dispara un destello en toda la pantalla (p.ej. rojo al recibir daño o morir, o blanco al completar objetivo).
+ * @param {string} color Color CSS (hex o rgba)
+ * @param {number} [duration=0.25] Duración en segundos
+ * @param {number} [maxAlpha=0.45] Opacidad máxima inicial
+ */
+export function triggerScreenFlash(color = 'rgba(180, 25, 30, 0.45)', duration = 0.25, maxAlpha = 0.45) {
+  flashColor = color;
+  flashDuration = Math.max(0.05, duration);
+  flashTimer = flashDuration;
+  flashAlpha = maxAlpha;
 }
 
 /**
- * Restaura el transform a identidad.
- * Llamar al final de cada frame de render.
+ * Actualiza el decaimiento del screen flash.
+ * @param {number} dt Delta time
+ */
+export function updateScreenFlash(dt) {
+  if (flashTimer > 0) {
+    flashTimer -= dt;
+    const progress = Math.max(0, flashTimer / flashDuration);
+    flashAlpha = progress * 0.45;
+  } else {
+    flashAlpha = 0;
+  }
+}
+
+/**
+ * Finaliza el frame de render aplicando posprocesamiento global (Screen Flash).
  */
 export function endRenderFrame() {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (flashAlpha > 0.005 && ctx) {
+    ctx.save();
+    ctx.fillStyle = flashColor;
+    ctx.globalAlpha = flashAlpha;
+    ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+    ctx.restore();
+  }
 }
 
 /**
- * Devuelve el contexto 2D para que otros módulos puedan dibujar.
+ * Devuelve el contexto 2D activo.
  * @returns {CanvasRenderingContext2D}
  */
 export function getCtx() {
@@ -110,89 +132,119 @@ export function getCtx() {
 }
 
 /**
- * Devuelve la escala actual (útil para la cámara y el input de ratón).
- * @returns {number}
+ * Devuelve la escala actual entre px lógicos y CSS.
  */
 export function getScale() {
-  return scale;
+  return cssWidth / CANVAS.WIDTH;
 }
 
-// ─── Helpers de dibujo ───────────────────────────────────────────────────────
+// ─── Helpers de Dibujo Vectorial ──────────────────────────────────────────────
 
 /**
- * Dibuja un rectángulo relleno en coordenadas lógicas.
- * @param {number} x
- * @param {number} y
- * @param {number} w
- * @param {number} h
- * @param {string} color — Color CSS
+ * Dibuja un rectángulo relleno con opción de esquinas redondeadas.
  */
-export function drawRect(x, y, w, h, color) {
+export function drawRect(x, y, w, h, color, radius = 0) {
+  if (!ctx) return;
   ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  if (radius > 0 && typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
 }
 
 /**
- * Dibuja el contorno de un rectángulo en coordenadas lógicas.
- * @param {number} x
- * @param {number} y
- * @param {number} w
- * @param {number} h
- * @param {string} color
- * @param {number} [lineWidth=1]
+ * Dibuja un trazo de contorno rectangular.
  */
-export function drawRectStroke(x, y, w, h, color, lineWidth = 1) {
+export function strokeRect(x, y, w, h, color, lineWidth = 1) {
+  if (!ctx) return;
   ctx.strokeStyle = color;
-  ctx.lineWidth   = lineWidth;
-  ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(w), Math.round(h));
+  ctx.lineWidth = lineWidth;
+  ctx.strokeRect(x, y, w, h);
 }
 
 /**
- * Dibuja texto en coordenadas lógicas con la fuente pixel del juego.
- * @param {string}  text
- * @param {number}  x
- * @param {number}  y
- * @param {string}  color
- * @param {number}  [size=6]   — Tamaño en px lógicos
- * @param {string}  [align='left']
+ * Dibuja un círculo relleno con opción de borde.
  */
-export function drawText(text, x, y, color, size = 6, align = 'left') {
-  ctx.fillStyle    = color;
-  ctx.font         = `${size}px "Press Start 2P", monospace`;
-  ctx.textAlign    = align;
-  ctx.textBaseline = 'top';
-  ctx.fillText(text, Math.round(x), Math.round(y));
+export function drawCircle(x, y, radius, fillColor, strokeColor = null, lineWidth = 1) {
+  if (!ctx || radius <= 0) return;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  if (fillColor) {
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  }
+  if (strokeColor) {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
 }
 
 /**
- * Dibuja un fade de pantalla con un color sólido y alpha dado.
- * Útil para transiciones entre estados.
- * @param {string} color — Color CSS (sin alpha)
- * @param {number} alpha — 0.0 (transparente) a 1.0 (opaco)
+ * Dibuja texto con tipografía estilizada y opción de sombra / halo.
  */
-export function fadeScreen(color, alpha) {
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.fillStyle   = color;
+export function drawText(text, x, y, options = {}) {
+  if (!ctx) return;
+  const {
+    font = '20px "Cinzel", serif',
+    color = PALETTE.BONE_DUST,
+    align = 'left',
+    baseline = 'middle',
+    shadow = null,
+    stroke = null,
+    strokeWidth = 2,
+  } = options;
+
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+
+  if (shadow) {
+    ctx.shadowColor = shadow.color || 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = shadow.blur || 6;
+    ctx.shadowOffsetX = shadow.x || 0;
+    ctx.shadowOffsetY = shadow.y || 2;
+  }
+
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeText(text, x, y);
+  }
+
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+/**
+ * Dibuja una capa de fundido de pantalla para transiciones o daño.
+ */
+export function fadeScreen(alpha, color = PALETTE.DEEP_SHADOW) {
+  if (!ctx || alpha <= 0) return;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
   ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 /**
- * Dibuja un sprite (recorte de imagen) en coordenadas lógicas.
- * @param {HTMLImageElement|HTMLCanvasElement} img
- * @param {number} sx  — Origen X en la hoja de sprites
- * @param {number} sy  — Origen Y en la hoja de sprites
- * @param {number} sw  — Ancho del sprite
- * @param {number} sh  — Alto del sprite
- * @param {number} dx  — Destino X lógico
- * @param {number} dy  — Destino Y lógico
- * @param {number} [dw] — Ancho de destino (por defecto sw)
- * @param {number} [dh] — Alto de destino (por defecto sh)
+ * Dibuja un halo de luz cálida radial con mezcla suave.
  */
-export function drawSprite(img, sx, sy, sw, sh, dx, dy, dw = sw, dh = sh) {
-  ctx.drawImage(
-    img,
-    sx, sy, sw, sh,
-    Math.round(dx), Math.round(dy), dw, dh,
-  );
+export function drawRadialLight(x, y, radius, innerColor, outerColor = 'rgba(0,0,0,0)') {
+  if (!ctx || radius <= 0) return;
+  ctx.save();
+  const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  grad.addColorStop(0, innerColor);
+  grad.addColorStop(1, outerColor);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }

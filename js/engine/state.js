@@ -1,77 +1,49 @@
 /**
- * state.js — Máquina de estados finitos para el juego.
- *
- * Estados posibles (de config.js):
- *   MENU | PLAYING | PAUSED | GAME_OVER | VICTORY
- *
- * Cada estado puede definir hooks:
- *   enter(prevState)   → al entrar al estado
- *   update(dt, input)  → lógica por frame
- *   draw(ctx, r)       → renderizado por frame
- *   exit(nextState)    → al salir del estado
- *
- * Uso:
- *   on(STATE.MENU, { enter, update, draw, exit })
- *   change(STATE.PLAYING)
- *   updateState(dt, input)
- *   drawState(ctx, r)
+ * js/engine/state.js — Máquina de estados finitos del juego (MENU, CONTROLS, INTRO, PLAYING, PAUSED, GAME_OVER, VICTORY).
+ * Issue #1 — Base del motor | Rama: feature/base-motor
  */
 
 import { STATE } from '../config.js';
 
-/** @type {string} Estado actual. */
 let currentState = STATE.MENU;
-
-/**
- * Mapa de estado → { enter, update, draw, exit }.
- * @type {Map<string, { enter?: Function, update?: Function, draw?: Function, exit?: Function }>}
- */
 const handlers = new Map();
 
-// ─── API pública ──────────────────────────────────────────────────────────────
-
 /**
- * Registra los handlers para un estado.
- * Llamar antes de iniciar el loop.
- * @param {string} state — Una de las constantes STATE.*
- * @param {{ enter?: Function, update?: Function, draw?: Function, exit?: Function }} hooks
+ * Registra los ganchos de ciclo de vida para un estado.
+ * @param {string} state
+ * @param {{ enter?: (prev: string, data?: any) => void, update?: (dt: number, input: any) => void, draw?: (ctx: CanvasRenderingContext2D, r: any) => void, exit?: (next: string) => void }} hooks
  */
 export function on(state, hooks) {
-  if (!Object.values(STATE).includes(state)) {
-    console.warn(`[state] Estado desconocido: "${state}"`);
-  }
   handlers.set(state, hooks);
 }
 
 /**
- * Cambia al estado indicado, llamando exit() del actual y enter() del nuevo.
- * Si ya estamos en ese estado, no hace nada.
+ * Cambia al nuevo estado disparando exit() del anterior y enter() del nuevo.
  * @param {string} nextState
+ * @param {any} [data] Datos opcionales pasados al hook enter
  */
-export function change(nextState) {
-  if (nextState === currentState) return;
+export function change(nextState, data = null) {
+  if (nextState === currentState && !data) return;
 
   const prev = currentState;
   const prevHandler = handlers.get(prev);
   const nextHandler = handlers.get(nextState);
 
-  // Salir del estado actual
   if (prevHandler?.exit) {
     prevHandler.exit(nextState);
   }
 
   currentState = nextState;
 
-  // Entrar al nuevo estado
   if (nextHandler?.enter) {
-    nextHandler.enter(prev);
+    nextHandler.enter(prev, data);
   }
 }
 
 /**
- * Ejecuta el update del estado actual.
- * @param {number} dt    — Delta time fijo en segundos
- * @param {object} input — Referencia al módulo de input
+ * Ejecuta la actualización lógica del estado activo.
+ * @param {number} dt
+ * @param {any} input
  */
 export function updateState(dt, input) {
   const handler = handlers.get(currentState);
@@ -81,30 +53,17 @@ export function updateState(dt, input) {
 }
 
 /**
- * Ejecuta el draw del estado actual.
+ * Ejecuta el renderizado del estado activo.
  * @param {CanvasRenderingContext2D} ctx
- * @param {object} r — Referencia al módulo renderer (helpers)
+ * @param {any} renderer
  */
-export function drawState(ctx, r) {
+export function drawState(ctx, renderer) {
   const handler = handlers.get(currentState);
   if (handler?.draw) {
-    handler.draw(ctx, r);
+    handler.draw(ctx, renderer);
   }
 }
 
-/**
- * Devuelve el estado actual como string.
- * @returns {string}
- */
 export function getState() {
   return currentState;
-}
-
-/**
- * Comprueba si estamos en el estado indicado.
- * @param {string} state
- * @returns {boolean}
- */
-export function is(state) {
-  return currentState === state;
 }

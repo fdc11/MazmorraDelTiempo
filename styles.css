@@ -1,25 +1,52 @@
 /* ============================================================
-   styles.css — La Mazmorra del Tiempo
-   Canvas centrado, pixel-perfect, escalado responsivo.
+   styles.css — Presentación premium Dark Fantasy: pantalla de carga,
+   letterbox, glow del canvas y efectos CSS de entrada.
+   Issue #1 — Base del motor | Rama: feature/base-motor
    ============================================================ */
 
-/* ── Reset mínimo ─────────────────────────────────────────── */
+/* ── Reset total ──────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-/* ── Página ───────────────────────────────────────────────── */
+/* ── Variables de paleta Dark Fantasy ─────────────────────── */
+:root {
+  --deep-shadow:    #0e0a10;
+  --night:          #16121c;
+  --stone-dark:     #262029;
+  --time-gold:      #e8b63a;
+  --time-gold-dim:  rgba(232, 182, 58, 0.35);
+  --bone-dust:      #e8dab8;
+  --crimson:        #9c1c20;
+  --fire:           #ff8326;
+  --turquoise:      #4ae0d2;
+}
+
+/* ── Página raíz y atmósfera ──────────────────────────────── */
 html, body {
   width: 100%;
   height: 100%;
-  overflow: hidden;           /* Sin scroll; el juego ocupa toda la pantalla */
-  background-color: #0a0c14; /* PALETTE.VOID — coincide con config.js */
-  font-family: "Press Start 2P", monospace;
+  overflow: hidden;
+  background-color: var(--deep-shadow);
+  color: var(--bone-dust);
+  font-family: "Cormorant Garamond", Georgia, serif;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
-/* ── Contenedor del juego ─────────────────────────────────── */
+/* ── Fondo de mazmorra texturizado ────────────────────────── */
+body {
+  background-image:
+    radial-gradient(ellipse at 50% 0%,   rgba(232, 182, 58, 0.04) 0%, transparent 65%),
+    radial-gradient(ellipse at 0% 100%,  rgba(156, 28, 32, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 100% 100%,rgba(40, 163, 151, 0.04) 0%, transparent 55%);
+  background-color: var(--deep-shadow);
+}
+
+/* ── Contenedor centrado (Letterbox) ──────────────────────── */
 #game-wrapper {
   position: relative;
   width: 100vw;
@@ -29,31 +56,156 @@ html, body {
   justify-content: center;
 }
 
-/* ── Canvas pixel-perfect ─────────────────────────────────── */
+/* ── Canvas vectorial de alta definición ──────────────────── */
 #gameCanvas {
-  /* Posicionado de forma absoluta para que el renderer JS
-     controle exactamente left/top (centrado con offsetX/offsetY). */
-  position: absolute;
-
-  /* Desactivar suavizado del navegador — crítico para píxeles nítidos */
-  image-rendering: pixelated;         /* Chrome, Edge, Opera         */
-  image-rendering: crisp-edges;       /* Firefox                     */
-  -ms-interpolation-mode: nearest-neighbor; /* IE (legacy)           */
-
-  /* Sin bordes ni fondo propio: el renderer pinta todo */
-  background: transparent;
-  border: none;
+  display: block;
+  position: relative;
+  z-index: 2;
+  border-radius: 4px;
+  background-color: var(--deep-shadow);
+  cursor: default;
   outline: none;
 
-  /* Cursor de juego */
-  cursor: none;
+  /* Sombra cinemática con halo dorado */
+  box-shadow:
+    0 0 0 1px rgba(232, 182, 58, 0.12),
+    0 0 30px rgba(232, 182, 58, 0.06),
+    0 8px 64px rgba(0, 0, 0, 0.90),
+    0 2px 8px  rgba(0, 0, 0, 0.60);
+
+  /* Aparición suave al cargar */
+  animation: canvas-appear 1.2s ease-out both;
 }
 
-/* ── Accesibilidad: reducir movimiento ────────────────────── */
+@keyframes canvas-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+    filter: brightness(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+/* ── Pantalla de carga (loading overlay) ──────────────────── */
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--deep-shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  transition: opacity 0.6s ease, visibility 0.6s ease;
+}
+
+#loading-screen.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Reloj de arena SVG animado en pantalla de carga */
+#loading-hourglass {
+  width: 80px;
+  height: 80px;
+  animation: hourglass-spin 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 16px rgba(232, 182, 58, 0.55));
+}
+
+@keyframes hourglass-spin {
+  0%   { transform: rotate(0deg);   }
+  48%  { transform: rotate(0deg);   }
+  52%  { transform: rotate(180deg); }
+  100% { transform: rotate(180deg); }
+}
+
+/* Título en pantalla de carga */
+#loading-title {
+  font-family: "Cinzel", Georgia, serif;
+  font-size: clamp(18px, 4vw, 28px);
+  font-weight: 700;
+  color: var(--time-gold);
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-shadow: 0 0 24px rgba(232, 182, 58, 0.5);
+  animation: title-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes title-pulse {
+  from { opacity: 0.75; text-shadow: 0 0 12px rgba(232, 182, 58, 0.3); }
+  to   { opacity: 1.00; text-shadow: 0 0 28px rgba(232, 182, 58, 0.7); }
+}
+
+/* Barra de progreso estilo mazmorra */
+#loading-bar-wrap {
+  position: relative;
+  width: min(320px, 60vw);
+  height: 6px;
+  background: rgba(38, 32, 41, 0.9);
+  border: 1px solid var(--time-gold-dim);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#loading-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--fire) 0%, var(--time-gold) 60%, #fffbe0 100%);
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px var(--time-gold), 0 0 2px #fff;
+  animation: bar-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes bar-shimmer {
+  0%   { filter: brightness(1);   }
+  50%  { filter: brightness(1.25); }
+  100% { filter: brightness(1);   }
+}
+
+/* Texto de estado de carga */
+#loading-status {
+  font-family: "Cormorant Garamond", serif;
+  font-size: clamp(13px, 2vw, 16px);
+  color: rgba(184, 142, 93, 0.8);
+  letter-spacing: 0.08em;
+  text-align: center;
+  min-height: 1.4em;
+  transition: opacity 0.3s;
+}
+
+/* Ornamento de esquinas en la loading screen */
+#loading-screen::before,
+#loading-screen::after {
+  content: '';
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-color: var(--time-gold-dim);
+  border-style: solid;
+  opacity: 0.6;
+}
+#loading-screen::before {
+  top: 24px; left: 24px;
+  border-width: 2px 0 0 2px;
+}
+#loading-screen::after {
+  bottom: 24px; right: 24px;
+  border-width: 0 2px 2px 0;
+}
+
+/* ── Accesibilidad: reducción de movimiento ───────────────── */
 @media (prefers-reduced-motion: reduce) {
-  #gameCanvas {
-    /* No aplicamos animaciones CSS al canvas, solo JS.
-       Este bloque es un recordatorio para futuras animaciones CSS. */
+  #gameCanvas,
+  #loading-hourglass,
+  #loading-title,
+  #loading-bar {
     animation: none !important;
     transition: none !important;
   }
