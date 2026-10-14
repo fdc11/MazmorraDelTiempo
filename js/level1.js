@@ -81,7 +81,7 @@ export default {
     }
 
     // Colocar carteles de guía tutorial
-    entities.push(new HintSign(9 * TILE_SIZE, 7 * TILE_SIZE + 12, 'A / D para correr'));
+    entities.push(new HintSign(5 * TILE_SIZE, 7 * TILE_SIZE + 12, 'A / D para moverte — ESPACIO para saltar'));
     entities.push(new HintSign(26 * TILE_SIZE, 7 * TILE_SIZE + 12, 'Salta a la cornisa y pulsa W'));
     entities.push(new HintSign(34 * TILE_SIZE, 7 * TILE_SIZE + 12, 'Cuidado con las puas: mide tu salto'));
     entities.push(new HintSign(50 * TILE_SIZE, 7 * TILE_SIZE + 12, 'El tiempo apremia hacia la salida'));
