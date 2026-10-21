@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Entornos virtuales ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Compilación (PyInstaller) ---
+build/
+dist/
+*.spec
+
+# --- Datos locales del juego ---
+save.json
+*.log
+
+# --- Editores / IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Archivos pesados que NO deben subirse ---
+*.zip
+*.rar
+*.7z
+*.psd
+*.mp4
+*.mov
